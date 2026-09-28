@@ -283,6 +283,7 @@ h1, h2, h3, p { margin-top: 0; }
 .auth-close { position: absolute; top: 14px; right: 14px; }
 .auth-modal .modal-icon { margin-bottom: 17px; }
 .auth-modal form { margin-top: 20px; }
+.auth-google { margin-top: 18px; }
 .auth-submit { margin-top: 3px; }
 .auth-switch { display: block; margin: 14px auto 0; padding: 3px; border: 0; color: #64866b; background: transparent; font-size: 10px; font-weight: 600; }
 .setup-instructions { padding: 14px; color: #697a6d; background: #f7f9f5; border: 1px solid #e9eee6; border-radius: 8px; font-size: 10px; line-height: 1.6; }
