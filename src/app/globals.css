@@ -44,6 +44,10 @@ a { color: inherit; }
 .workspace-label { display: flex; align-items: center; gap: 9px; margin-left: 37px; color: #718078; font-size: 12px; font-weight: 600; }
 .workspace-divider { height: 22px; width: 1px; background: var(--line); margin-right: 3px; }
 .topbar-right { display: flex; align-items: center; gap: 11px; margin-left: auto; }
+.desktop-auth-actions, .account-actions, .mobile-auth-actions, .mobile-account-actions { display: flex; align-items: center; gap: 8px; }
+.button-ghost { color: #52645a; background: transparent; }
+.button-ghost:hover:not(:disabled) { color: var(--green-dark); background: #f3f7f2; }
+.logout-button { min-height: 33px; }
 .topbar-email { color: #64736b; font-size: 12px; }
 .student-access-link { display: inline-flex; align-items: center; gap: 4px; color: #78917c; text-decoration: none; font-size: 10px; font-weight: 600; }
 .student-access-link:hover { color: #477753; }
@@ -284,6 +288,7 @@ h1, h2, h3, p { margin-top: 0; }
 .auth-modal .modal-icon { margin-bottom: 17px; }
 .auth-modal form { margin-top: 20px; }
 .auth-google { margin-top: 18px; }
+.auth-message { margin: 0 0 10px; padding: 9px 10px; color: #426b4c; background: #eff6ed; border-radius: 6px; font-size: 10px; line-height: 1.5; }
 .auth-submit { margin-top: 3px; }
 .auth-switch { display: block; margin: 14px auto 0; padding: 3px; border: 0; color: #64866b; background: transparent; font-size: 10px; font-weight: 600; }
 .setup-instructions { padding: 14px; color: #697a6d; background: #f7f9f5; border: 1px solid #e9eee6; border-radius: 8px; font-size: 10px; line-height: 1.6; }
@@ -445,7 +450,7 @@ h1, h2, h3, p { margin-top: 0; }
   .brand-mark { width: 28px; height: 28px; }
   .workspace-label { display: none; }
   .topbar-email { display: none; }
-  .student-access-link { font-size: 9px; }
+  .student-access-link, .desktop-auth-actions, .account-actions { display: none; }
   .topbar-right { gap: 6px; }
   .app-body { display: block; min-height: calc(100vh - 55px); }
   .sidebar { display: none; }
@@ -454,6 +459,10 @@ h1, h2, h3, p { margin-top: 0; }
   .mobile-nav { position: absolute; top: 42px; right: 0; left: 0; z-index: 9; display: grid; padding: 7px; background: var(--paper); border: 1px solid var(--line); border-radius: 0 0 9px 9px; box-shadow: var(--shadow); }
   .mobile-nav button { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border: 0; border-radius: 6px; color: #718078; background: transparent; text-align: left; font-size: 11px; font-weight: 600; }
   .mobile-nav button:hover { color: #4d805c; background: #eff5ed; }
+  .mobile-auth-actions, .mobile-account-actions { gap: 8px; margin-top: 5px; padding: 9px 4px 3px; border-top: 1px solid var(--line); }
+  .mobile-auth-actions .button { flex: 1; }
+  .mobile-account-actions .topbar-email { display: block; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .mobile-account-actions .logout-button { flex: none; }
   .mobile-header .icon-button { margin-right: 1px; }
   .mobile-header .brand-mark { width: 24px; height: 24px; border-radius: 7px; }
   .view-content { padding: 24px 0 22px; }

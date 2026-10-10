@@ -22,17 +22,20 @@ export default function AuthCallback() {
         return;
       }
 
-      const code = params.get("code");
       const supabase = getSupabaseClient();
-      if (!code || !supabase) {
-        setError(!supabase ? "Supabase is not configured." : "The sign-in link is missing its authorization code.");
+      if (!supabase) {
+        setError("Supabase is not configured.");
         return;
       }
 
       try {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          setError(exchangeError.message);
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          setError(sessionError.message);
+          return;
+        }
+        if (!data.session) {
+          setError("Google sign-in did not create a session. Please try again.");
           return;
         }
         router.replace("/");

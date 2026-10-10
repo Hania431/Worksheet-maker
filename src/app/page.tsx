@@ -112,6 +112,7 @@ export default function Home() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("signup");
   const [authError, setAuthError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
@@ -161,17 +162,59 @@ export default function Home() {
   useEffect(() => {
     setDarkSetting(localStorage.getItem("classkit-dark-mode") === "true");
     setThemeLoaded(true);
-    if (!supabase) {
+    const authClient = supabase;
+    if (!authClient) {
       setAuthLoading(false);
       return;
     }
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) setNotice(error.message);
-      setProfile(data.session?.user ? { id: data.session.user.id, email: data.session.user.email } : null);
+    const client = authClient;
+    const callbackParams = new URLSearchParams(window.location.search);
+    const callbackError = callbackParams.get("error_description") ?? callbackParams.get("error");
+    const hasAuthCallback = Boolean(callbackError || callbackParams.has("code"));
+    const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
+      setProfile(session?.user ? { id: session.user.id, email: session.user.email } : null);
+      if (session && !callbackError) {
+        setAuthOpen(false);
+        setAuthError("");
+      }
       setAuthLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setProfile(session?.user ? { id: session.user.id, email: session.user.email } : null);
+
+    async function restoreAuthSession() {
+      if (callbackError) {
+        setAuthMode("login");
+        setAuthOpen(true);
+        setAuthError(`Google sign-in failed: ${callbackError}`);
+      }
+
+      const { data, error } = await client.auth.getSession();
+      if (hasAuthCallback) window.history.replaceState(window.history.state, document.title, window.location.pathname);
+      if (error) {
+        if (hasAuthCallback) {
+          setAuthMode("login");
+          setAuthOpen(true);
+          setAuthError(`Google sign-in failed: ${error.message}`);
+        } else {
+          setNotice(`Couldn't restore your sign-in session: ${error.message}`);
+        }
+      } else if (hasAuthCallback && !callbackError && !data.session) {
+        setAuthMode("login");
+        setAuthOpen(true);
+        setAuthError("Google sign-in did not create a session. Please try again.");
+      }
+      setProfile(data.session?.user ? { id: data.session.user.id, email: data.session.user.email } : null);
+      if (data.session && !callbackError) setAuthOpen(false);
+      setAuthLoading(false);
+    }
+
+    void restoreAuthSession().catch((error: unknown) => {
+      setAuthMode("login");
+      setAuthOpen(true);
+      if (hasAuthCallback) {
+        setAuthError(error instanceof Error ? `Google sign-in failed: ${error.message}` : "Google sign-in could not be completed.");
+      } else {
+        setAuthError(error instanceof Error ? `Couldn't restore your sign-in session: ${error.message}` : "Your sign-in session could not be restored.");
+      }
       setAuthLoading(false);
     });
     return () => listener.subscription.unsubscribe();
@@ -222,31 +265,49 @@ export default function Home() {
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
+    setAuthMessage("");
     const data = new FormData(event.currentTarget);
-    const email = String(data.get("email") ?? "");
+    const email = String(data.get("email") ?? "").trim();
     const password = String(data.get("password") ?? "");
-    if (!supabase) return;
-    setLoading(true);
-    const result = authMode === "signup"
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (result.error) {
-      setAuthError(result.error.message);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError("Enter a valid email address.");
       return;
     }
-    if (authMode === "signup" && !result.data.session) setAuthError("Check your inbox to confirm your email, then come back to sign in.");
-    else setAuthOpen(false);
+    if (!password || (authMode === "signup" && password.length < 8)) {
+      setAuthError(authMode === "signup" ? "Your password must be at least 8 characters." : "Enter your password.");
+      return;
+    }
+    if (!supabase) return;
+    setLoading(true);
+    try {
+      const result = authMode === "signup"
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password });
+      if (result.error) {
+        setAuthError(result.error.message);
+        return;
+      }
+      if (authMode === "signup" && !result.data.session) {
+        setAuthMessage("Check your email to confirm your account, then sign in.");
+      } else {
+        setAuthOpen(false);
+      }
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Authentication could not be completed.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleGoogleAuth() {
     setAuthError("");
+    setAuthMessage("");
     if (!supabase) return;
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${location.origin}/auth/callback` },
+        options: { redirectTo: window.location.origin },
       });
       if (error) setAuthError(error.message);
     } catch (error) {
@@ -254,6 +315,14 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function openAuthModal(mode: "login" | "signup") {
+    setAuthMode(mode);
+    setAuthError("");
+    setAuthMessage("");
+    setAuthOpen(true);
+    setMobileMenuOpen(false);
   }
 
   async function createWorksheet(event: FormEvent<HTMLFormElement>) {
@@ -423,7 +492,7 @@ export default function Home() {
     <header className="topbar">
       <div className="brand"><span className="brand-mark"><BookOpenCheck size={18} /></span><span>classkit</span></div>
       <div className="workspace-label"><span className="workspace-divider" /><span>Teacher workspace</span><ChevronDown size={14} /></div>
-      <div className="topbar-right"><a className="student-access-link" href="/join">Have a class code? <ArrowRight size={13} /></a><button className="icon-button theme-toggle" onClick={() => setDarkSetting(!darkSetting)} aria-label="Toggle dark mode">{darkSetting ? <Sun size={17} /> : <Moon size={17} />}</button>{!demoMode && profile ? <><span className="topbar-email">{profile.email}</span><button className="icon-button" title="Sign out" onClick={() => void logout()}><LogOut size={17} /></button><span className="avatar">{profile.email?.slice(0, 2).toUpperCase()}</span></> : <button className="button button-light sign-in-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>{demoMode ? "Connect account" : "Sign in"}</button>}</div>
+      <div className="topbar-right"><a className="student-access-link" href="/join">Have a class code? <ArrowRight size={13} /></a><button className="icon-button theme-toggle" onClick={() => setDarkSetting(!darkSetting)} aria-label="Toggle dark mode">{darkSetting ? <Sun size={17} /> : <Moon size={17} />}</button>{profile ? <div className="account-actions"><span className="avatar">{profile.email?.slice(0, 2).toUpperCase() ?? "U"}</span><span className="topbar-email">{profile.email}</span><button className="button button-light logout-button" onClick={() => void logout()}><LogOut size={15} /> Log out</button></div> : <div className="desktop-auth-actions"><button className="button button-ghost" onClick={() => openAuthModal("login")}>Log in</button><button className="button button-primary" onClick={() => openAuthModal("signup")}>Sign up</button></div>}</div>
     </header>
     <div className="app-body">
       <aside className="sidebar">
@@ -439,8 +508,8 @@ export default function Home() {
 
       <main className="main-content">
         <div className="mobile-header"><button className="icon-button" aria-label="Open workspace menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Menu size={20} /></button><span className="brand-mark"><BookOpenCheck size={17} /></span> classkit</div>
-        {mobileMenuOpen && <nav className="mobile-nav"><button onClick={() => { setView("overview"); setMobileMenuOpen(false); }}><Grid2X2 size={17} /> Overview</button><button onClick={() => { setView("worksheets"); setMobileMenuOpen(false); }}><FileText size={17} /> My worksheets</button><button onClick={() => { setView("results"); setMobileMenuOpen(false); }}><BarChart3 size={17} /> Class results</button><button onClick={() => { setMobileMenuOpen(false); setCreateOpen(true); }}><Plus size={17} /> Create worksheet</button></nav>}
-        {demoMode && <div className="demo-banner"><div><Sparkles size={16} /><span><strong>You’re exploring demo mode.</strong> Worksheets are saved in this browser only. Connect Supabase to enable secure sharing and teacher accounts.</span></div><button onClick={() => { setAuthMode("signup"); setAuthOpen(true); }}>Set up account <ArrowRight size={14} /></button></div>}
+        {mobileMenuOpen && <nav className="mobile-nav"><button onClick={() => { setView("overview"); setMobileMenuOpen(false); }}><Grid2X2 size={17} /> Overview</button><button onClick={() => { setView("worksheets"); setMobileMenuOpen(false); }}><FileText size={17} /> My worksheets</button><button onClick={() => { setView("results"); setMobileMenuOpen(false); }}><BarChart3 size={17} /> Class results</button><button onClick={() => { setMobileMenuOpen(false); setCreateOpen(true); }}><Plus size={17} /> Create worksheet</button>{profile ? <div className="mobile-account-actions"><span className="avatar">{profile.email?.slice(0, 2).toUpperCase() ?? "U"}</span><span className="topbar-email">{profile.email}</span><button className="button button-light logout-button" onClick={() => void logout()}><LogOut size={15} /> Log out</button></div> : <div className="mobile-auth-actions"><button className="button button-ghost" onClick={() => openAuthModal("login")}>Log in</button><button className="button button-primary" onClick={() => openAuthModal("signup")}>Sign up</button></div>}</nav>}
+        {demoMode && <div className="demo-banner"><div><Sparkles size={16} /><span><strong>You’re exploring demo mode.</strong> Worksheets are saved in this browser only. Connect Supabase to enable secure sharing and teacher accounts.</span></div><button onClick={() => openAuthModal("signup")}>Set up account <ArrowRight size={14} /></button></div>}
         {notice && <div className="notice-banner"><CircleHelp size={16} /><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice("")}><X size={15} /></button></div>}
         {view === "overview" && <section className="view-content">
           <div className="welcome-row"><div><div className="eyebrow">{todayLabel}</div><h1>A good day to make<br className="mobile-break" /> something <span>click.</span></h1><p className="welcome-subtitle">A little practice goes a long way. What are we learning today?</p></div><button className="button button-primary hero-cta" onClick={() => setCreateOpen(true)}><Plus size={17} /> Make a worksheet</button></div>
@@ -470,7 +539,38 @@ export default function Home() {
     </div>
     {manualReview && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setManualReview(null); }}><section className="grade-modal" role="dialog" aria-modal="true" aria-labelledby="grade-title"><div className="modal-header"><div><div className="eyebrow">TEACHER REVIEW</div><h2 id="grade-title">{manualReview.student_name}’s short answers</h2><p className="modal-lede">Use your judgment to mark each response. Your score updates as you grade.</p></div><button className="icon-button" onClick={() => setManualReview(null)} aria-label="Close"><X size={18} /></button></div>{worksheets.find((item) => item.id === manualReview.worksheet_id)?.questions.map((question, index) => question.type === "short_answer" && <article className="manual-grade-item" key={index}><span className="review-number">QUESTION {index + 1}</span><p>{question.question}</p><div className="student-response"><span>STUDENT RESPONSE</span><strong>{manualReview.answers[index] || "No answer provided"}</strong></div><div className="student-response reference-answer"><span>REFERENCE ANSWER</span><strong>{question.answer}</strong></div><div className="grade-choices"><button className={gradeDraft[String(index)] === true ? "grade-choice selected" : "grade-choice"} onClick={() => setGradeDraft((current) => ({ ...current, [String(index)]: true }))}><Check size={15} /> Correct</button><button className={gradeDraft[String(index)] === false ? "grade-choice incorrect selected" : "grade-choice incorrect"} onClick={() => setGradeDraft((current) => ({ ...current, [String(index)]: false }))}><X size={15} /> Incorrect</button></div></article>)}<div className="modal-footer"><span>Score updates your class results immediately.</span><button className="button button-primary" onClick={() => void saveManualGrades(gradeDraft)}><Check size={15} /> Save grades</button></div></section></div>}
     {createOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateOpen(false); }}><section className="create-modal" role="dialog" aria-modal="true" aria-labelledby="create-title"><div className="modal-header"><div className="modal-icon"><Sparkles size={18} /></div><button className="icon-button" onClick={() => setCreateOpen(false)} aria-label="Close"><X size={18} /></button></div><div className="eyebrow">A FRESH PAGE</div><h2 id="create-title">Let’s make a worksheet.</h2><p className="modal-lede">A topic is all we need to get started. You can edit every question before sharing.</p>{demoMode && <p className="demo-generation-note">Local demo mode only generates arithmetic questions. Connect Supabase and configure <code>GROQ_API_KEY</code> to create AI worksheets for other subjects.</p>}<form onSubmit={(event) => void createWorksheet(event)}><div className="form-grid"><label className="field"><span>Subject</span><select value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })}><option>Math</option><option>English</option><option>Science</option><option>History</option><option>Other</option></select></label><label className="field"><span>Grade level</span><select value={form.grade} onChange={(event) => setForm({ ...form, grade: event.target.value })}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={String(index + 1)}>Grade {index + 1}</option>)}</select></label></div><label className="field"><span>What are we learning?</span><input autoFocus placeholder="e.g. Fractions, the water cycle, persuasive writing" value={form.topic} onChange={(event) => setForm({ ...form, topic: event.target.value })} maxLength={160} /></label><div className="form-grid"><label className="field"><span>Number of questions</span><select value={form.number} onChange={(event) => setForm({ ...form, number: Number(event.target.value) })}>{[5, 10, 15, 20].map((number) => <option key={number} value={number}>{number} questions</option>)}</select></label><label className="field"><span>Difficulty</span><select value={form.difficulty} onChange={(event) => setForm({ ...form, difficulty: event.target.value })}><option>Easy</option><option>Medium</option><option>Hard</option></select></label></div><fieldset className="type-field"><legend>Question types <span>Pick as many as you like</span></legend><div className="type-chips">{TYPES.map((type) => <button className={form.types.includes(type) ? "type-chip selected" : "type-chip"} type="button" key={type} onClick={() => toggleType(type)}>{form.types.includes(type) && <Check size={13} />}{QUESTION_TYPE_LABELS[type]}</button>)}</div></fieldset>{notice && <p className="form-error" role="alert">{notice}</p>}<div className="modal-footer"><span><ShieldCheck size={14} /> Your questions are always yours to edit.</span><button className="button button-primary" type="submit" disabled={loading}>{loading ? <><LoaderCircle size={16} className="spin" /> Creating…</> : <><Sparkles size={16} /> Generate worksheet <ArrowRight size={15} /></>}</button></div></form></section></div>}
-    {authOpen && <div className="modal-backdrop"><section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button className="icon-button auth-close" onClick={() => setAuthOpen(false)} aria-label="Close"><X size={18} /></button><div className="modal-icon"><GraduationCap size={19} /></div><div className="eyebrow">YOUR CLASSROOM, YOUR WAY</div><h2 id="auth-title">{authMode === "signup" ? "Make a little room." : "Welcome back."}</h2><p className="modal-lede">{demoMode ? "Connect your Supabase project to unlock secure teacher accounts and student sharing." : authMode === "signup" ? "Create your free teacher account and keep every worksheet in one place." : "Sign in to pick up where you left off."}</p>{demoMode ? <div className="setup-instructions"><strong>Quick setup</strong><p>Add these environment variables in Vercel Project Settings and in a local <code>.env.local</code> file:</p><code>NEXT_PUBLIC_SUPABASE_URL<br />NEXT_PUBLIC_SUPABASE_ANON_KEY<br />SUPABASE_SERVICE_ROLE_KEY</code><p>Then run the setup script at <code>supabase/schema.sql</code> in your Supabase SQL editor.</p><a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Open Supabase <ArrowRight size={14} /></a></div> : <><button type="button" className="button button-light full auth-google" onClick={() => void handleGoogleAuth()} disabled={loading}>{loading ? <LoaderCircle size={16} className="spin" /> : null} Continue with Google</button><form onSubmit={(event) => void handleAuth(event)}><label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required placeholder="you@school.edu" /></label><label className="field"><span>Password</span><input name="password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} minLength={8} required placeholder="At least 8 characters" /></label>{authError && <p className="form-error" role="alert">{authError}</p>}<button className="button button-primary full auth-submit" disabled={loading}>{loading ? <LoaderCircle size={16} className="spin" /> : authMode === "signup" ? "Create free account" : "Sign in"} <ArrowRight size={15} /></button><button type="button" className="auth-switch" onClick={() => { setAuthError(""); setAuthMode(authMode === "signup" ? "login" : "signup"); }}>{authMode === "signup" ? "Already have an account? Sign in" : "New to Classkit? Create a free account"}</button></form></>}</section></div>}
+    {authOpen && (
+      <div className="modal-backdrop">
+        <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+          <button className="icon-button auth-close" onClick={() => setAuthOpen(false)} aria-label="Close"><X size={18} /></button>
+          <div className="modal-icon"><GraduationCap size={19} /></div>
+          <div className="eyebrow">YOUR CLASSROOM, YOUR WAY</div>
+          <h2 id="auth-title">{authMode === "signup" ? "Make a little room." : "Welcome back."}</h2>
+          <p className="modal-lede">{demoMode ? "Connect your Supabase project to unlock secure teacher accounts and student sharing." : authMode === "signup" ? "Create your free teacher account and keep every worksheet in one place." : "Sign in to pick up where you left off."}</p>
+          {demoMode ? (
+            <div className="setup-instructions">
+              <strong>Quick setup</strong>
+              <p>Add these environment variables in Vercel Project Settings and in a local <code>.env.local</code> file:</p>
+              <code>NEXT_PUBLIC_SUPABASE_URL<br />NEXT_PUBLIC_SUPABASE_ANON_KEY<br />SUPABASE_SERVICE_ROLE_KEY</code>
+              <p>Then run the setup script at <code>supabase/schema.sql</code> in your Supabase SQL editor.</p>
+              <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Open Supabase <ArrowRight size={14} /></a>
+            </div>
+          ) : (
+            <>
+              {authError && <p className="form-error" role="alert">{authError}</p>}
+              {authMessage && <p className="auth-message" role="status">{authMessage}</p>}
+              <button type="button" className="button button-light full auth-google" onClick={() => void handleGoogleAuth()} disabled={loading}>{loading && <LoaderCircle size={16} className="spin" />} Continue with Google</button>
+              <form onSubmit={(event) => void handleAuth(event)}>
+                <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required placeholder="you@example.com" /></label>
+                <label className="field"><span>Password</span><input name="password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} minLength={authMode === "signup" ? 8 : undefined} required placeholder={authMode === "signup" ? "At least 8 characters" : "Your password"} /></label>
+                <button className="button button-primary full auth-submit" disabled={loading}>{loading ? <LoaderCircle size={16} className="spin" /> : authMode === "signup" ? "Create free account" : "Sign in"} <ArrowRight size={15} /></button>
+                <button type="button" className="auth-switch" onClick={() => { setAuthError(""); setAuthMessage(""); setAuthMode(authMode === "signup" ? "login" : "signup"); }}>{authMode === "signup" ? "Already have an account? Log in" : "New to Classkit? Create a free account"}</button>
+              </form>
+            </>
+          )}
+        </section>
+      </div>
+    )}
     {notice && !createOpen && !activeWorksheet && <div className="toast"><CheckCircle2 size={16} />{notice}<button onClick={() => setNotice("")} aria-label="Dismiss message"><X size={15} /></button></div>}
   </div>;
 }
