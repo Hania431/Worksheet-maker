@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, LoaderCircle, Pencil, Plus, Printer, Save, Trash2 } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { featureStorageError } from "@/lib/feature-errors";
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DEFAULT_SETTINGS: TimetableSettings = {
@@ -40,6 +41,7 @@ type TimetableEntry = {
   entry_type: "lesson" | "break" | "free";
   subject: string;
   class_grade: string;
+  teacher_name: string;
   starts_at: string;
   ends_at: string;
   room: string;
@@ -108,7 +110,7 @@ function normalizeSettings(value: unknown): TimetableSettings {
 }
 
 function emptyEntry(date: string): EntryForm {
-  return { entry_date: date, is_recurring: true, entry_type: "lesson", subject: "", class_grade: "", starts_at: "08:00", ends_at: "08:45", room: "", notes: "" };
+  return { entry_date: date, is_recurring: true, entry_type: "lesson", subject: "", class_grade: "", teacher_name: "", starts_at: "08:00", ends_at: "08:45", room: "", notes: "" };
 }
 
 function scheduleBlocks(entries: TimetableEntry[], settings: TimetableSettings): ScheduleBlock[] {
@@ -174,7 +176,9 @@ export function TimetableManager({
       if (datedResult.error) throw datedResult.error;
       setEntries([...(recurringResult.data ?? []), ...(datedResult.data ?? [])] as TimetableEntry[]);
     } catch (loadError) {
-      setError(loadError instanceof Error ? `Couldn't load this week's timetable: ${loadError.message}` : "Couldn't load this week's timetable.");
+      setError(loadError && typeof loadError === "object" && "code" in loadError
+        ? featureStorageError("timetable", "load this week's timetable", loadError as { code?: string; message?: string })
+        : loadError instanceof Error ? `Couldn't load this week's timetable: ${loadError.message}` : "Couldn't load this week's timetable.");
     } finally {
       setEntriesLoading(false);
     }
@@ -205,7 +209,9 @@ export function TimetableManager({
           setSubjectsText("");
         }
       } catch (loadError) {
-        if (active) setSettingsError(loadError instanceof Error ? `Couldn't load timetable settings: ${loadError.message}` : "Couldn't load timetable settings.");
+        if (active) setSettingsError(loadError && typeof loadError === "object" && "code" in loadError
+          ? featureStorageError("timetable", "load timetable settings", loadError as { code?: string; message?: string })
+          : loadError instanceof Error ? `Couldn't load timetable settings: ${loadError.message}` : "Couldn't load timetable settings.");
       } finally {
         if (active) setSettingsLoaded(true);
       }
@@ -327,6 +333,7 @@ export function TimetableManager({
             entry_type: entry.entry_type,
             subject: entry.subject,
             class_grade: entry.class_grade,
+            teacher_name: entry.teacher_name,
             starts_at: entry.starts_at.slice(0, 5),
             ends_at: entry.ends_at.slice(0, 5),
             room: entry.room,
@@ -344,6 +351,7 @@ export function TimetableManager({
         entry_type: entry.entry_type,
         subject: entry.subject,
         class_grade: entry.class_grade,
+        teacher_name: entry.teacher_name,
         starts_at: entry.starts_at.slice(0, 5),
         ends_at: entry.ends_at.slice(0, 5),
         room: entry.room,
@@ -385,6 +393,14 @@ export function TimetableManager({
       setError("Sign in to save timetable entries.");
       return;
     }
+    if (!entryForm.subject.trim() || (entryForm.entry_type === "lesson" && !entryForm.class_grade.trim())) {
+      setError("Enter a subject and class/grade before saving this period.");
+      return;
+    }
+    if (!entryForm.entry_date || Number.isNaN(new Date(`${entryForm.entry_date}T12:00:00`).getTime())) {
+      setError("Choose a valid date for this period.");
+      return;
+    }
     if (timeValue(entryForm.ends_at) <= timeValue(entryForm.starts_at)) {
       setError("End time must be after start time.");
       return;
@@ -421,7 +437,14 @@ export function TimetableManager({
       setMessage(editingId ? "Timetable entry updated." : "Timetable entry saved.");
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : "Couldn't save this timetable entry.";
-      setError(message.includes("overlaps another timetable entry") ? "This period overlaps another entry. Choose a different time or day." : `Couldn't save this timetable entry: ${message}`);
+      if (saveError && typeof saveError === "object" && "code" in saveError) {
+        const code = (saveError as { code?: string }).code;
+        setError(message.includes("overlaps") || code === "23P01"
+          ? "This period overlaps another entry. Choose a different time or day."
+          : featureStorageError("timetable", "save this timetable entry", saveError as { code?: string; message?: string }));
+      } else {
+        setError(message.includes("overlaps") ? "This period overlaps another entry. Choose a different time or day." : `Couldn't save this timetable entry: ${message}`);
+      }
     } finally {
       setSavingEntry(false);
     }
@@ -437,7 +460,9 @@ export function TimetableManager({
       setEntries((current) => current.filter((item) => item.id !== entry.id));
       setMessage("Timetable entry deleted.");
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? `Couldn't delete this timetable entry: ${deleteError.message}` : "Couldn't delete this timetable entry.");
+      setError(deleteError && typeof deleteError === "object" && "code" in deleteError
+        ? featureStorageError("timetable", "delete this timetable entry", deleteError as { code?: string; message?: string })
+        : deleteError instanceof Error ? `Couldn't delete this timetable entry: ${deleteError.message}` : "Couldn't delete this timetable entry.");
     }
   }
 
@@ -458,6 +483,7 @@ export function TimetableManager({
       entry_type: entry.entry_type,
       subject: entry.subject,
       class_grade: entry.class_grade,
+      teacher_name: entry.teacher_name,
       starts_at: entry.starts_at.slice(0, 5),
       ends_at: entry.ends_at.slice(0, 5),
       room: entry.room,
@@ -480,7 +506,14 @@ export function TimetableManager({
       setMessage(`Copied ${copies.length} ${copies.length === 1 ? "entry" : "entries"} to ${DAY_NAMES[targetIndex]}.`);
     } catch (copyError) {
       const message = copyError instanceof Error ? copyError.message : "Copy failed.";
-      setError(message.includes("overlaps another timetable entry") ? "The destination day already has an overlapping period. No entries were copied." : `Couldn't copy this day: ${message}`);
+      if (copyError && typeof copyError === "object" && "code" in copyError) {
+        const code = (copyError as { code?: string }).code;
+        setError(message.includes("overlaps") || code === "23P01"
+          ? "The destination day already has an overlapping period. No entries were copied."
+          : featureStorageError("timetable", "copy this day", copyError as { code?: string; message?: string }));
+      } else {
+        setError(message.includes("overlaps") ? "The destination day already has an overlapping period. No entries were copied." : `Couldn't copy this day: ${message}`);
+      }
     }
   }
 
@@ -586,6 +619,7 @@ export function TimetableManager({
               <label className="field"><span>Period type</span><select value={entryForm.entry_type} onChange={(event) => setEntryForm({ ...entryForm, entry_type: event.target.value as EntryForm["entry_type"], subject: event.target.value === "break" ? "Break" : event.target.value === "free" ? "Free period" : "" })}><option value="lesson">Lesson</option><option value="break">Break</option><option value="free">Free period</option></select></label>
               <label className="field"><span>{entryForm.entry_type === "lesson" ? "Subject" : "Label"}</span><input required maxLength={100} list="timetable-subject-options" value={entryForm.subject} onChange={(event) => setEntryForm({ ...entryForm, subject: event.target.value })} placeholder={entryForm.entry_type === "lesson" ? "Choose or enter a subject" : "Break or free period"} /><datalist id="timetable-subject-options">{settings.subjects.map((subject) => <option key={subject} value={subject} />)}</datalist></label>
               {entryForm.entry_type === "lesson" && <label className="field"><span>Class / grade</span><input required maxLength={100} list="timetable-class-options" value={entryForm.class_grade} onChange={(event) => setEntryForm({ ...entryForm, class_grade: event.target.value })} placeholder="Choose or enter a class" /><datalist id="timetable-class-options">{settings.classes.map((grade) => <option key={grade} value={grade} />)}</datalist></label>}
+              <label className="field"><span>Teacher name <small>Optional</small></span><input maxLength={120} value={entryForm.teacher_name} onChange={(event) => setEntryForm({ ...entryForm, teacher_name: event.target.value })} /></label>
               <div className="timetable-time-pair"><label className="field"><span>Start time</span><input type="time" required value={entryForm.starts_at} onChange={(event) => setEntryForm({ ...entryForm, starts_at: event.target.value })} /></label><label className="field"><span>End time</span><input type="time" required value={entryForm.ends_at} onChange={(event) => setEntryForm({ ...entryForm, ends_at: event.target.value })} /></label></div>
               <label className="field"><span>Room <small>Optional</small></span><input maxLength={100} value={entryForm.room} onChange={(event) => setEntryForm({ ...entryForm, room: event.target.value })} /></label>
               <label className="field"><span>Notes <small>Optional</small></span><textarea rows={3} maxLength={1000} value={entryForm.notes} onChange={(event) => setEntryForm({ ...entryForm, notes: event.target.value })} /></label>
@@ -634,6 +668,7 @@ function TimetableEntryCard({
     <div className="timetable-entry-time">{displayTime(entry.starts_at)}–{displayTime(entry.ends_at)}</div>
     <strong>{entry.subject}</strong>
     {entry.class_grade && <span>{entry.class_grade}</span>}
+    {entry.teacher_name && <small>Teacher: {entry.teacher_name}</small>}
     {entry.room && <small>Room {entry.room}</small>}
     {entry.notes && <small className="timetable-entry-notes">{entry.notes}</small>}
     <small className="timetable-repeat-label">{entry.is_recurring ? "Every week" : "One-off"}</small>

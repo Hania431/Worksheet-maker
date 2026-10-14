@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpenCheck, Check, Copy, LoaderCircle, Plus, Printer, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { featureStorageError } from "@/lib/feature-errors";
 
 type LessonInput = {
   subject: string;
@@ -17,6 +18,7 @@ type LessonInput = {
 
 type TeachingActivity = { title: string; instructions: string; duration_minutes: number };
 type LessonPlan = {
+  [key: string]: unknown;
   title: string;
   topic: string;
   learning_objectives: string[];
@@ -53,6 +55,25 @@ const EMPTY_INPUT: LessonInput = {
 
 function stringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isLessonInput(value: unknown): value is LessonInput {
+  if (typeof value !== "object" || value === null) return false;
+  const input = value as Partial<LessonInput>;
+  return typeof input.subject === "string" && typeof input.grade === "string" && typeof input.topic === "string"
+    && typeof input.objectives === "string" && typeof input.durationMinutes === "number"
+    && (input.language === "English" || input.language === "Urdu")
+    && (input.studentLevel === "Beginner" || input.studentLevel === "Intermediate" || input.studentLevel === "Advanced")
+    && typeof input.resources === "string";
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function isPlan(value: unknown): value is LessonPlan {
@@ -117,17 +138,27 @@ export function LessonPlanner({
         .eq("teacher_id", teacherId)
         .order("updated_at", { ascending: false });
       if (queryError) throw queryError;
-      setSavedPlans((data ?? []).map((row) => ({
-        id: row.id as string,
-        subject: row.subject as string,
-        grade: row.grade as string,
-        topic: row.topic as string,
-        inputs: row.inputs as LessonInput,
-        plan: row.plan as LessonPlan,
-        updated_at: row.updated_at as string,
-      })).filter((row) => isPlan(row.plan)));
+      const plans = (data ?? []).map((row) => {
+        if (typeof row.id !== "string" || typeof row.subject !== "string" || typeof row.grade !== "string"
+          || typeof row.topic !== "string" || typeof row.updated_at !== "string" || !isPlan(row.plan)) {
+          throw new Error("A saved lesson plan has an incomplete or unsupported record shape. It was not omitted from the library silently.");
+        }
+        return {
+          id: row.id,
+          subject: row.subject,
+          grade: row.grade,
+          topic: row.topic,
+          inputs: isLessonInput(row.inputs) ? row.inputs : { ...EMPTY_INPUT },
+          plan: row.plan,
+          updated_at: row.updated_at,
+        };
+      });
+      setSavedPlans(plans);
     } catch (loadError) {
-      setError(loadError instanceof Error ? `Couldn't load your lesson plans: ${loadError.message}` : "Couldn't load your lesson plans.");
+      const message = loadError instanceof Error ? loadError.message : "Supabase returned an unspecified database error.";
+      setError(loadError && typeof loadError === "object" && "code" in loadError
+        ? featureStorageError("lesson-plan", "load your lesson plans", loadError as { code?: string; message?: string })
+        : `Couldn't load your lesson plans: ${message}`);
     } finally {
       setLoadingPlans(false);
     }
@@ -233,14 +264,30 @@ export function LessonPlanner({
       };
       const { data, error: saveError } = await supabase.from("lesson_plans")
         .upsert(row, { onConflict: "id" })
-        .select("id")
+        .select("id, teacher_id, subject, grade, topic, inputs, plan, updated_at")
         .single();
       if (saveError) throw saveError;
-      setActiveId(data.id as string);
-      await loadPlans();
+      if (data.teacher_id !== teacherId || typeof data.id !== "string"
+        || !isPlan(data.plan) || canonicalJson(data.plan) !== canonicalJson(plan)) {
+        throw new Error("Supabase did not return the complete saved lesson plan. The plan was not marked as saved.");
+      }
+      const saved: SavedLessonPlan = {
+        id: data.id,
+        subject: data.subject,
+        grade: data.grade,
+        topic: data.topic,
+        inputs: isLessonInput(data.inputs) ? data.inputs : input,
+        plan: data.plan,
+        updated_at: data.updated_at,
+      };
+      setActiveId(saved.id);
+      setPlan(saved.plan);
+      setSavedPlans((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setMessage("Lesson plan saved.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? `Couldn't save this lesson plan: ${saveError.message}` : "Couldn't save this lesson plan.");
+      setError(saveError && typeof saveError === "object" && "code" in saveError
+        ? featureStorageError("lesson-plan", "save this lesson plan", saveError as { code?: string; message?: string })
+        : saveError instanceof Error ? `Couldn't save this lesson plan: ${saveError.message}` : "Couldn't save this lesson plan.");
     } finally {
       setSaving(false);
     }
@@ -257,7 +304,9 @@ export function LessonPlanner({
       if (activeId === saved.id) startNewPlan();
       setMessage("Lesson plan deleted.");
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? `Couldn't delete this lesson plan: ${deleteError.message}` : "Couldn't delete this lesson plan.");
+      setError(deleteError && typeof deleteError === "object" && "code" in deleteError
+        ? featureStorageError("lesson-plan", "delete this lesson plan", deleteError as { code?: string; message?: string })
+        : deleteError instanceof Error ? `Couldn't delete this lesson plan: ${deleteError.message}` : "Couldn't delete this lesson plan.");
     }
   }
 

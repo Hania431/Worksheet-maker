@@ -50,6 +50,7 @@ create table if not exists public.timetable_entries (
   entry_type text not null default 'lesson' check (entry_type in ('lesson', 'break', 'free')),
   subject text not null check (char_length(subject) between 1 and 100),
   class_grade text not null default '',
+  teacher_name text not null default '',
   starts_at time not null,
   ends_at time not null,
   room text not null default '',
@@ -58,6 +59,10 @@ create table if not exists public.timetable_entries (
   updated_at timestamptz not null default now(),
   constraint timetable_entry_time_valid check (ends_at > starts_at)
 );
+
+alter table public.timetable_entries
+  add column if not exists is_recurring boolean not null default true,
+  add column if not exists teacher_name text not null default '';
 
 create index if not exists timetable_entries_teacher_date_time_idx
   on public.timetable_entries (teacher_id, entry_date, starts_at);

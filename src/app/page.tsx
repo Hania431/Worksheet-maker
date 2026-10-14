@@ -558,7 +558,7 @@ export default function Home() {
               <strong>Quick setup</strong>
               <p>Add these environment variables in Vercel Project Settings and in a local <code>.env.local</code> file:</p>
               <code>NEXT_PUBLIC_SUPABASE_URL<br />NEXT_PUBLIC_SUPABASE_ANON_KEY<br />SUPABASE_SERVICE_ROLE_KEY</code>
-              <p>Then run the setup script at <code>supabase/schema.sql</code> in your Supabase SQL editor.</p>
+              <p>Run <code>supabase/schema.sql</code> first, then apply <code>supabase/migrations/20261014_lesson_plans_and_timetables.sql</code> in your Supabase SQL editor to enable private lesson plans and timetables.</p>
               <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">Open Supabase <ArrowRight size={14} /></a>
             </div>
           ) : (

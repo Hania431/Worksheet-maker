@@ -16,12 +16,13 @@ type LessonPlanRequest = {
 };
 
 type LessonPlan = {
+  [key: string]: unknown;
   title: string;
   topic: string;
   learning_objectives: string[];
   required_materials: string[];
   warm_up_activity: string;
-  teaching_activities: { title: string; instructions: string; duration_minutes: number }[];
+  teaching_activities: { [key: string]: unknown; title: string; instructions: string; duration_minutes: number }[];
   concept_explanation: string;
   participation_activities: string[];
   assessment_questions: string[];
@@ -72,6 +73,7 @@ function validatePlan(value: unknown, duration: number): LessonPlan | null {
       || activity.duration_minutes < 1
       || activity.duration_minutes > duration) return null;
     activities.push({
+      ...activity,
       title: activity.title.trim(),
       instructions: activity.instructions.trim(),
       duration_minutes: activity.duration_minutes,
@@ -80,6 +82,7 @@ function validatePlan(value: unknown, duration: number): LessonPlan | null {
   if (activities.reduce((sum, activity) => sum + activity.duration_minutes, 0) !== duration) return null;
 
   return {
+    ...value,
     title: value.title.trim(),
     topic: value.topic.trim(),
     learning_objectives: value.learning_objectives.map((item) => item.trim()),
