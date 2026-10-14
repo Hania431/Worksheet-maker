@@ -2,16 +2,18 @@
 
 import {
   ArrowDownToLine, ArrowLeft, ArrowRight, BarChart3, BookOpenCheck, Check, CheckCircle2,
-  ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Clock3, Download, Eye, FileText,
+  CalendarDays, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Clock3, Download, Eye, FileText,
   Filter, FlaskConical, GraduationCap, Grid2X2, Lightbulb, LoaderCircle, LogOut, Menu, Moon,
   MoreHorizontal, Plus, Printer, Search, Settings2, Share2, ShieldCheck, Sparkles, Sun, Trash2,
   Users, X, Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
+import { LessonPlanner } from "@/components/lesson-planner";
+import { TimetableManager } from "@/components/timetable-manager";
 import { QUESTION_TYPE_LABELS, type Question, type QuestionType, type Submission, type Worksheet } from "@/lib/types";
 
-type View = "overview" | "worksheets" | "results";
+type View = "overview" | "worksheets" | "results" | "lessons" | "timetable";
 type Profile = { id: string; email?: string };
 const STORAGE_KEY = "classkit-demo-worksheets-v2";
 const TYPES: QuestionType[] = ["mcq", "fill_blank", "true_false", "short_answer"];
@@ -502,15 +504,19 @@ export default function Home() {
           <button className={view === "overview" ? "nav-item active" : "nav-item"} onClick={() => setView("overview")}><Grid2X2 size={18} /> Overview</button>
           <button className={view === "worksheets" ? "nav-item active" : "nav-item"} onClick={() => setView("worksheets")}><FileText size={18} /> My worksheets <span className="nav-count">{worksheets.length}</span></button>
           <button className={view === "results" ? "nav-item active" : "nav-item"} onClick={() => setView("results")}><BarChart3 size={18} /> Class results</button>
+          <button className={view === "lessons" ? "nav-item active" : "nav-item"} onClick={() => setView("lessons")}><BookOpenCheck size={18} /> Lesson Planner</button>
+          <button className={view === "timetable" ? "nav-item active" : "nav-item"} onClick={() => setView("timetable")}><CalendarDays size={18} /> My Timetable</button>
         </nav>
         <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><Lightbulb size={16} /></div><strong>A little inspiration</strong><p>Try “fractions” for a ready-to-share math warm-up.</p><button onClick={() => { setForm({ ...form, subject: "Math", topic: "Fractions", grade: "5" }); setCreateOpen(true); }}>Try it out <ArrowRight size={13} /></button></div><div className="free-tag"><ShieldCheck size={15} /> Free for every classroom</div></div>
       </aside>
 
       <main className="main-content">
         <div className="mobile-header"><button className="icon-button" aria-label="Open workspace menu" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Menu size={20} /></button><span className="brand-mark"><BookOpenCheck size={17} /></span> classkit</div>
-        {mobileMenuOpen && <nav className="mobile-nav"><button onClick={() => { setView("overview"); setMobileMenuOpen(false); }}><Grid2X2 size={17} /> Overview</button><button onClick={() => { setView("worksheets"); setMobileMenuOpen(false); }}><FileText size={17} /> My worksheets</button><button onClick={() => { setView("results"); setMobileMenuOpen(false); }}><BarChart3 size={17} /> Class results</button><button onClick={() => { setMobileMenuOpen(false); setCreateOpen(true); }}><Plus size={17} /> Create worksheet</button>{profile ? <div className="mobile-account-actions"><span className="avatar">{profile.email?.slice(0, 2).toUpperCase() ?? "U"}</span><span className="topbar-email">{profile.email}</span><button className="button button-light logout-button" onClick={() => void logout()}><LogOut size={15} /> Log out</button></div> : <div className="mobile-auth-actions"><button className="button button-ghost" onClick={() => openAuthModal("login")}>Log in</button><button className="button button-primary" onClick={() => openAuthModal("signup")}>Sign up</button></div>}</nav>}
+        {mobileMenuOpen && <nav className="mobile-nav"><button onClick={() => { setView("overview"); setMobileMenuOpen(false); }}><Grid2X2 size={17} /> Overview</button><button onClick={() => { setView("worksheets"); setMobileMenuOpen(false); }}><FileText size={17} /> My worksheets</button><button onClick={() => { setView("results"); setMobileMenuOpen(false); }}><BarChart3 size={17} /> Class results</button><button onClick={() => { setView("lessons"); setMobileMenuOpen(false); }}><BookOpenCheck size={17} /> Lesson Planner</button><button onClick={() => { setView("timetable"); setMobileMenuOpen(false); }}><CalendarDays size={17} /> My Timetable</button><button onClick={() => { setMobileMenuOpen(false); setCreateOpen(true); }}><Plus size={17} /> Create worksheet</button>{profile ? <div className="mobile-account-actions"><span className="avatar">{profile.email?.slice(0, 2).toUpperCase() ?? "U"}</span><span className="topbar-email">{profile.email}</span><button className="button button-light logout-button" onClick={() => void logout()}><LogOut size={15} /> Log out</button></div> : <div className="mobile-auth-actions"><button className="button button-ghost" onClick={() => openAuthModal("login")}>Log in</button><button className="button button-primary" onClick={() => openAuthModal("signup")}>Sign up</button></div>}</nav>}
         {demoMode && <div className="demo-banner"><div><Sparkles size={16} /><span><strong>You’re exploring demo mode.</strong> Worksheets are saved in this browser only. Connect Supabase to enable secure sharing and teacher accounts.</span></div><button onClick={() => openAuthModal("signup")}>Set up account <ArrowRight size={14} /></button></div>}
         {notice && <div className="notice-banner"><CircleHelp size={16} /><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice("")}><X size={15} /></button></div>}
+        {view === "lessons" && <LessonPlanner key={profile?.id ?? "anonymous"} supabase={supabase} teacherId={profile?.id ?? null} onSignIn={() => openAuthModal("login")} />}
+        {view === "timetable" && <TimetableManager key={profile?.id ?? "anonymous"} supabase={supabase} teacherId={profile?.id ?? null} onSignIn={() => openAuthModal("login")} />}
         {view === "overview" && <section className="view-content">
           <div className="welcome-row"><div><div className="eyebrow">{todayLabel}</div><h1>A good day to make<br className="mobile-break" /> something <span>click.</span></h1><p className="welcome-subtitle">A little practice goes a long way. What are we learning today?</p></div><button className="button button-primary hero-cta" onClick={() => setCreateOpen(true)}><Plus size={17} /> Make a worksheet</button></div>
           <div className="stat-grid"><div className="stat-card"><div className="stat-top"><span>Worksheets made</span><div className="stat-icon blue"><FileText size={17} /></div></div><div className="stat-value">{worksheets.length.toString().padStart(2, "0")}<span className="stat-note">in your library</span></div><div className="stat-foot"><span className="stat-trend">↑ {publishedCount} shared</span><span>all time</span></div></div><div className="stat-card"><div className="stat-top"><span>Student submissions</span><div className="stat-icon peach"><Users size={17} /></div></div><div className="stat-value">{completedCount.toString().padStart(2, "0")}<span className="stat-note">across your classes</span></div><div className="stat-foot"><span>{completedCount ? "Your class is showing up" : "Share a worksheet to get started"}</span></div></div><div className="stat-card"><div className="stat-top"><span>Class average</span><div className="stat-icon green"><BarChart3 size={17} /></div></div><div className="stat-value">{gradedSubmissions.length ? `${average}%` : "—"}<span className="stat-note">{gradedSubmissions.length ? "overall score" : "waiting for results"}</span></div><div className="stat-foot"><span>{gradedSubmissions.length ? `${gradedSubmissions.length} students graded` : "The good stuff is coming"}</span></div></div></div>
